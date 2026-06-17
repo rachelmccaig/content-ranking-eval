@@ -8,7 +8,7 @@ Fetches live HackerNews stories, scores them using Claude Opus as a model-as-jud
 
 Default sample size is 500 stories. Run with `--n 50` for a quick test.
 
-## Results (7 runs)
+## Results (8 runs)
 
 | Run | Model | N | Correlation | p-value | Notes |
 |---|---|---|---|---|---|
@@ -19,6 +19,7 @@ Default sample size is 500 stories. Run with `--n 50` for a quick test.
 | v3 LLM | Opus | 50 | -0.234 | — | Ground truth updated to composite engagement signal |
 | v3 LLM | Opus | 50 | -0.159 | 0.273 | Added title_word_count signal |
 | v3 LLM | Haiku | 499 | **-0.113** | **0.012** | First statistically significant result |
+| v3 LLM | Haiku | 499 | **-0.104** | **0.022** | Second significant result — finding confirmed |
 
 The final run is the headline: p=0.012 at n=499 confirms the negative correlation is real, not noise. The judge is measurably anti-correlated with human engagement.
 
@@ -55,6 +56,16 @@ The 6-run evidence points to one clear next lever: the LLM judge has hit its cei
 - **Domain authority** — `tonsky.me`, `paulgraham.com` carry community trust that account karma doesn't capture. Domain-level historical engagement is a cleaner signal than per-author karma.
 - **Golden set validation** — the consistent over- and under-raters identified across 6 runs (Nipkow Disk, Iroh 1.0, Fabrice Bellard) are a natural starting point for a human-scored golden set to validate judge quality independently of the engagement signal.
 - **Audience fit** — production ranking asks "is this right for *this person* on *this surface*?", not just "is this good in isolation?" That requires personalization infrastructure that text evals can't replicate.
+
+## Cross-model validation
+
+After the core iteration was complete, the v3 script was submitted to Codex for an independent engineering review. A second model then validated that review before any changes were accepted.
+
+The review confirmed the analytical findings — the biggest methodological concern flagged was that engagement is affected by age, timing, author reputation, and HN's own ranking algorithm, not just content quality. That's the construct validity problem the README already describes.
+
+Engineering improvements identified and implemented in v4 (available on request): scipy Spearman with tie-aware fallback, LLM output validation, retry/backoff, checkpointing for long runs, age-adjusted engagement normalization, author karma removed from judge prompt by default.
+
+The most interesting methodological suggestion came from the review: instead of sampling `topstories` (stories that already won), score `newstories` at T0 and collect engagement 6–24 hours later. That removes the feedback loop — HN's ranking algorithm affects visibility, which affects engagement, which contaminates the ground truth. A T0 design would test whether the judge can predict future engagement from content alone, before the platform's own signal intervenes. That's the v5 direction.
 
 ## A dimension that was considered and rejected
 
