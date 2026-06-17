@@ -13,6 +13,10 @@ Iteration history:
       with a dimension that already encodes engagement likelihood.
   v2: Replaced engagement_potential with topic_novelty. Added author_karma and
       article_age_hours as data signals. Switched to Opus for richer reasoning.
+  v3: Updated ground truth from raw upvote score to a composite engagement signal
+      weighting comments more heavily than upvotes. Comments require active intent;
+      upvotes are passive. Chosen interaction signals are more valuable for ranking
+      than impression-level signals.
 
 Usage:
     python content_ranking_eval.py --demo          # no API key, heuristic scorer
@@ -33,8 +37,13 @@ import numpy as np
 import requests
 
 HN_API = "https://hacker-news.firebaseio.com/v0"
-DEFAULT_N = 50
-MODEL = "claude-opus-4-8"
+DEFAULT_N = 500  # POC uses 50; 500 recommended for statistical significance. Note: Opus at 500 stories takes ~20-30 min and costs ~$10-15.
+MODEL = "claude-haiku-4-5-20251001"
+
+# Ground truth weighting. Comments require active intent; upvotes are passive.
+# Weighting comments more heavily reflects that chosen interaction is a stronger
+# engagement signal than impressions. Hypothesis: 2x is a reasonable starting point.
+COMMENT_WEIGHT = 2
 
 # Rubric weights. engagement_potential removed (circular predictor).
 # topic_novelty added as a genuine input signal.
@@ -76,12 +85,17 @@ def fetch_stories(n: int) -> list[dict]:
         domain = url.split("/")[2].replace("www.", "") if url and "//" in url else ""
         author = item.get("by", "")
         posted_at = item.get("time", now)
+        hn_score = item.get("score", 0)
+        comments = item.get("descendants", 0)
+        title = item.get("title", "")
         stories.append({
             "id":               story_id,
-            "title":            item.get("title", ""),
+            "title":            title,
+            "title_word_count": len(title.split()),
             "domain":           domain,
-            "hn_score":         item.get("score", 0),
-            "comments":         item.get("descendants", 0),
+            "hn_score":         hn_score,
+            "comments":         comments,
+            "engagement":       hn_score + (comments * COMMENT_WEIGHT),
             "text":             (item.get("text") or "")[:300],
             "author":           author,
             "author_karma":     fetch_author_karma(author),
@@ -106,7 +120,7 @@ def score_with_llm(story: dict, client) -> dict:
     else:
         karma_label = f"low ({karma:,}) — newer account"
 
-    lines = [f"Title: {story['title']}"]
+    lines = [f"Title: {story['title']} ({story.get('title_word_count', len(story['title'].split()))} words)"]
     if story["domain"]:
         lines.append(f"Source: {story['domain']}")
     if story.get("author"):
@@ -208,18 +222,19 @@ def run_report(stories: list[dict], corr: float, p_value: float, demo: bool):
 
     sig = "significant" if p_value < 0.05 else "not significant"
     print(f"\nSpearman correlation: {corr:+.3f}  (p={p_value:.3f}, {sig})")
+    print(f"Ground truth: composite engagement score (upvotes + comments x{COMMENT_WEIGHT})")
 
     by_llm = sorted(stories, key=lambda s: s["llm_rank"])
-    by_hn  = sorted(stories, key=lambda s: s["hn_rank"])
+    by_eng = sorted(stories, key=lambda s: s["hn_rank"])
 
     print("\nTop 10 by judge score:")
     for s in by_llm[:10]:
         print(f"  #{int(s['llm_rank']):>2}  [{s['llm_composite']:.1f}]  "
-              f"HN #{int(s['hn_rank']):>3}  {s['title'][:65]}")
+              f"Engagement #{int(s['hn_rank']):>3}  {s['title'][:65]}")
 
-    print("\nTop 10 by HN score:")
-    for s in by_hn[:10]:
-        print(f"  #{int(s['hn_rank']):>2}  [{s['hn_score']:>4} pts]  "
+    print("\nTop 10 by composite engagement:")
+    for s in by_eng[:10]:
+        print(f"  #{int(s['hn_rank']):>2}  [{s['hn_score']} pts + {s['comments']} comments]  "
               f"Judge #{int(s['llm_rank']):>3}  {s['title'][:65]}")
 
     print("\nBiggest disagreements:")
@@ -229,9 +244,9 @@ def run_report(stories: list[dict], corr: float, p_value: float, demo: bool):
         direction = "overrated" if s["llm_rank"] < s["hn_rank"] else "underrated"
         print(f"\n  Judge {direction} by {gap} positions")
         print(f"  Title:  {s['title'][:70]}")
-        print(f"  Judge #{int(s['llm_rank'])}  |  HN #{int(s['hn_rank'])}  |  "
-              f"{s['hn_score']} pts  |  age: {s.get('article_age_hours', '?')}h  |  "
-              f"karma: {s.get('author_karma', 0):,}")
+        print(f"  Judge #{int(s['llm_rank'])}  |  Engagement #{int(s['hn_rank'])}  |  "
+              f"{s['hn_score']} pts + {s['comments']} comments = {s['engagement']} engagement  |  "
+              f"age: {s.get('article_age_hours', '?')}h  |  karma: {s.get('author_karma', 0):,}")
         print(f"  Note:   {s['reasoning']}")
 
 
@@ -241,8 +256,8 @@ def save_csv(stories: list[dict], corr: float, p_value: float):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"ranking_eval_results_{timestamp}.csv"
     fields = [
-        "title", "domain", "author", "author_karma", "article_age_hours",
-        "hn_score", "comments",
+        "title", "title_word_count", "domain", "author", "author_karma", "article_age_hours",
+        "hn_score", "comments", "engagement",
         "title_clarity", "specificity", "topic_novelty", "information_density",
         "llm_composite", "llm_rank", "hn_rank", "rank_gap", "reasoning",
     ]
@@ -295,10 +310,10 @@ def main():
             time.sleep(0.3)
 
     sorted_by_llm = sorted(stories, key=lambda s: s["llm_composite"], reverse=True)
-    sorted_by_hn  = sorted(stories, key=lambda s: s["hn_score"],      reverse=True)
+    sorted_by_eng = sorted(stories, key=lambda s: s["engagement"],    reverse=True)
     for rank, s in enumerate(sorted_by_llm, 1):
         s["llm_rank"] = rank
-    for rank, s in enumerate(sorted_by_hn, 1):
+    for rank, s in enumerate(sorted_by_eng, 1):
         s["hn_rank"] = rank
     for s in stories:
         s["rank_gap"] = abs(s["llm_rank"] - s["hn_rank"])
