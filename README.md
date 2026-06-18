@@ -4,13 +4,20 @@ An AI evaluation prototype for testing whether a model-as-judge quality rubric p
 
 This project uses Hacker News because it provides public content, engagement data, and an existing ranking surface. The goal is not to recreate the HN ranker or build a production recommendation system. The goal is narrower: define a content-quality rubric, score stories with an LLM judge, compare those scores against observed engagement, and diagnose where the rubric diverges from what people actually respond to.
 
-<p align="center">
-  <img src="images/methodology.svg" alt="Methodology diagram showing Hacker News stories flowing through an LLM judge, quality rubric, composite score, rank correlation, and failure analysis." width="720">
-</p>
+```mermaid
+flowchart LR
+    A[Hacker News stories<br/>content + metadata] --> B[Claude model-as-judge]
+    B --> C[Quality rubric<br/>clarity, specificity,<br/>novelty, density]
+    C --> D[Composite quality score]
+    A --> E[Composite engagement<br/>upvotes + comments x2]
+    D --> F[Spearman rank correlation]
+    E --> F
+    F --> G[Failure analysis<br/>where signals diverge]
+```
 
 ## Key Finding
 
-Across 8 runs, the conclusion stayed stable: a text-quality rubric did not predict Hacker News engagement. In the two larger 499-story runs, the correlation was small, negative, and statistically significant.
+Across 8 total runs, the conclusion stayed stable: a text-quality rubric did not predict Hacker News engagement. In the two larger 499-story runs, the correlation was small, negative, and statistically significant. The table below collapses the experiment history into the runs that changed the methodology.
 
 | Run | Model | N | Correlation | p-value | Notes |
 |---|---|---:|---:|---:|---|
@@ -60,6 +67,8 @@ When the correlation stayed negative across methodology changes, the right concl
 This is also why a `community_identity` dimension was considered and rejected. Community identity is not a property of the title text. It lives in behavioral data: author history, domain reputation, topic momentum, and audience context. Asking the judge to infer it from title text alone would create plausible but ungrounded scores.
 
 For detailed failure modes, repeated examples, and future methodology notes, see [ANALYSIS.md](ANALYSIS.md).
+
+For a notebook-style walkthrough of the rubric, results table, and representative disagreements, see [content_ranking_eval.ipynb](content_ranking_eval.ipynb).
 
 ## What I Would Do Next
 
