@@ -4,7 +4,7 @@ A model-as-judge eval pipeline for validating content ranking signals against re
 
 ## What this is
 
-Fetches live HackerNews stories, scores them using Claude Opus as a model-as-judge across a rubric of content quality dimensions, then validates those scores against actual upvote scores using Spearman rank correlation. The goal: test whether a given rubric captures signal that predicts real engagement, and surface where it doesn't.
+Fetches live HackerNews stories, scores them using a Claude model-as-judge across a rubric of content quality dimensions, then validates those scores against a composite engagement signal using Spearman rank correlation. The goal: test whether a given rubric captures signal that predicts real engagement, and surface where it doesn't.
 
 Default sample size is 500 stories. Run with `--n 50` for a quick test.
 
@@ -21,7 +21,7 @@ Default sample size is 500 stories. Run with `--n 50` for a quick test.
 | v3 LLM | Haiku | 499 | **-0.113** | **0.012** | First statistically significant result |
 | v3 LLM | Haiku | 499 | **-0.104** | **0.022** | Second significant result — finding confirmed |
 
-The final run is the headline: p=0.012 at n=499 confirms the negative correlation is real, not noise. The judge is measurably anti-correlated with human engagement.
+The two 499-story runs are the headline: both reached statistical significance and confirmed the negative correlation is real, not noise. The judge is measurably anti-correlated with human engagement.
 
 Switching from Opus to Haiku produced no meaningful change in the correlation direction or magnitude. This suggests the construct gap is structural — a function of what the rubric measures, not how well the model reasons. More capable models don't close the gap; better signals would.
 
@@ -50,7 +50,7 @@ Problem: `engagement_potential` is a circular predictor. You can't use "how like
 
 ## What v4 would tackle
 
-The 6-run evidence points to one clear next lever: the LLM judge has hit its ceiling on text-based signals. More prompt tuning won't close the gap. The missing signal is behavioral.
+The 8-run evidence points to one clear next lever: the LLM judge has hit its ceiling on text-based signals. More prompt tuning won't close the gap. The missing signal is behavioral.
 
 - **Historical engagement feature** — count how many times an author or domain has landed in the HN top 100 in the last 30 days. A simple API-backed lookup that would capture the "Iroh 1.0" class of misses without requiring the judge to know community context it doesn't have.
 - **Domain authority** — `tonsky.me`, `paulgraham.com` carry community trust that account karma doesn't capture. Domain-level historical engagement is a cleaner signal than per-author karma.
@@ -63,7 +63,9 @@ After the core iteration was complete, the v3 script was submitted to Codex for 
 
 The review confirmed the analytical findings — the biggest methodological concern flagged was that engagement is affected by age, timing, author reputation, and HN's own ranking algorithm, not just content quality. That's the construct validity problem the README already describes.
 
-Engineering improvements identified and implemented in v4 (available on request): scipy Spearman with tie-aware fallback, LLM output validation, retry/backoff, checkpointing for long runs, age-adjusted engagement normalization, author karma removed from judge prompt by default.
+The review also produced an engineering hardening pass: scipy Spearman with tie-aware fallback, LLM output validation, retry/backoff, checkpointing for long runs, optional age-adjusted engagement normalization, and author karma removed from the judge prompt by default.
+
+Those changes are not the canonical script in this repo because some of them change the methodology used to generate the results above. The main script preserves reproducibility for the reported runs; the hardened version is a separate next step, not a silent replacement.
 
 The most interesting methodological suggestion came from the review: instead of sampling `topstories` (stories that already won), score `newstories` at T0 and collect engagement 6–24 hours later. That removes the feedback loop — HN's ranking algorithm affects visibility, which affects engagement, which contaminates the ground truth. A T0 design would test whether the judge can predict future engagement from content alone, before the platform's own signal intervenes. That's the v5 direction.
 
