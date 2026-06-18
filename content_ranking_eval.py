@@ -37,8 +37,8 @@ import numpy as np
 import requests
 
 HN_API = "https://hacker-news.firebaseio.com/v0"
-DEFAULT_N = 500  # POC uses 50; 500 recommended for statistical significance. Note: Opus at 500 stories takes ~20-30 min and costs ~$10-15.
-MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_N = 500  # 500 recommended for statistical significance. Opus at 500 stories: ~20-30 min, ~$10-15. Haiku: ~5-10 min, ~$1.
+MODEL = "claude-opus-4-8"  # Runs v1–v3 used Opus. Switch to claude-haiku-4-5-20251001 for faster/cheaper runs at scale.
 
 # Ground truth weighting. Comments require active intent; upvotes are passive.
 # Weighting comments more heavily reflects that chosen interaction is a stronger
